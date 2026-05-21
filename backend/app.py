@@ -39,10 +39,7 @@ allowed_origins = ["http://localhost:5173", "http://localhost:8080", "http://loc
 def add_cors_headers(response):
     try:
         origin = request.headers.get('Origin')
-        if origin in allowed_origins:
-            response.headers['Access-Control-Allow-Origin'] = origin
-        elif not origin:
-            response.headers['Access-Control-Allow-Origin'] = 'https://ai-pptcon-frontend.vercel.app'
+        response.headers['Access-Control-Allow-Origin'] = origin or 'https://ai-pptcon-frontend.vercel.app'
         response.headers['Access-Control-Allow-Credentials'] = 'true' 
         response.headers['Vary'] = 'Origin'
         response.headers['Access-Control-Allow-Headers'] = 'Authorization, Content-Type'
