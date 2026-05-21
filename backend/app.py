@@ -1,3 +1,4 @@
+from pymongo import UpdateOne
 from flask import Flask, request, jsonify, send_from_directory, g, send_file, make_response
 from flask_cors import CORS
 from werkzeug.utils import secure_filename
@@ -216,14 +217,13 @@ def save_chat_history(chat_history):
     if db_manager.db is not None:
         # Use MongoDB
         try:
+            operations = []
             for email, chats in chat_history.items():
                 for chat in chats:
                     chat['email'] = email
-                    db_manager.db.chat_history.update_one(
-                        {"id": chat['id']},
-                        {"$set": chat},
-                        upsert=True
-                    )
+                    operations.append(UpdateOne({"id": chat['id']}, {"$set": chat}, upsert=True))
+            if operations:
+                db_manager.db.chat_history.bulk_write(operations)
             return
         except Exception as e:
             print(f"Error saving chat history to MongoDB: {e}")
@@ -273,15 +273,13 @@ def save_dashboard_data(dashboard_data):
     if db_manager.db is not None:
         # Use MongoDB
         try:
+            operations = []
             for user_id, data in dashboard_data.items():
-                # Ensure the document carries its user_id
                 if 'user_id' not in data:
                     data['user_id'] = user_id
-                db_manager.db.dashboard_data.update_one(
-                    {"user_id": user_id},
-                    {"$set": data},
-                    upsert=True
-                )
+                operations.append(UpdateOne({"user_id": user_id}, {"$set": data}, upsert=True))
+            if operations:
+                db_manager.db.dashboard_data.bulk_write(operations)
             return
         except Exception as e:
             print(f"Error saving dashboard data to MongoDB: {e}")
@@ -389,14 +387,13 @@ def save_user_activities(user_activities):
     if db_manager.db is not None:
         # Use MongoDB
         try:
+            operations = []
             for email, activities in user_activities.items():
                 for activity in activities:
                     activity['email'] = email
-                    db_manager.db.user_activities.update_one(
-                        {"id": activity['id']},
-                        {"$set": activity},
-                        upsert=True
-                    )
+                    operations.append(UpdateOne({"id": activity['id']}, {"$set": activity}, upsert=True))
+            if operations:
+                db_manager.db.user_activities.bulk_write(operations)
             return
         except Exception as e:
             print(f"Error saving user activities to MongoDB: {e}")
