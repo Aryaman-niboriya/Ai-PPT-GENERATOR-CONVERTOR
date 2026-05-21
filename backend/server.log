@@ -1,0 +1,26 @@
+✅ Connected to MongoDB database: pptcon_db
+✅ Database collections initialized with indexes
+ * Serving Flask app 'app'
+ * Debug mode: on
+[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on all addresses (0.0.0.0)
+ * Running on http://127.0.0.1:5050
+ * Running on http://192.168.1.2:5050
+[33mPress CTRL+C to quit[0m
+ * Restarting with stat
+ * Debugger is active!
+ * Debugger PIN: 257-675-754
+✅ Connected to MongoDB database: pptcon_db
+✅ Database collections initialized with indexes
+Traceback (most recent call last):
+  File "/Users/aryamanniboriya/Downloads/pptcon copy/backend/app.py", line 3020, in <module>
+    app.run(host="0.0.0.0", port=5050, debug=True)
+  File "/Users/aryamanniboriya/Library/Python/3.9/lib/python/site-packages/flask/app.py", line 662, in run
+    run_simple(t.cast(str, host), port, self, **options)
+  File "/Users/aryamanniboriya/Library/Python/3.9/lib/python/site-packages/werkzeug/serving.py", line 1115, in run_simple
+    run_with_reloader(
+  File "/Users/aryamanniboriya/Library/Python/3.9/lib/python/site-packages/werkzeug/_reloader.py", line 459, in run_with_reloader
+    ensure_echo_on()
+  File "/Users/aryamanniboriya/Library/Python/3.9/lib/python/site-packages/werkzeug/_reloader.py", line 439, in ensure_echo_on
+    termios.tcsetattr(sys.stdin, termios.TCSANOW, attributes)
+termios.error: (4, 'Interrupted system call')
