@@ -53,6 +53,9 @@ def add_cors_headers(response):
         origin = request.headers.get('Origin')
         if origin in allowed_origins:
             response.headers['Access-Control-Allow-Origin'] = origin
+        elif not origin:
+            response.headers['Access-Control-Allow-Origin'] = 'https://ai-pptcon-frontend.vercel.app'
+        response.headers['Access-Control-Allow-Credentials'] = 'true' 
         response.headers['Vary'] = 'Origin'
         response.headers['Access-Control-Allow-Headers'] = 'Authorization, Content-Type'
         response.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS, PATCH'
