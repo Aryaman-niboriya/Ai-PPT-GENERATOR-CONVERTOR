@@ -226,7 +226,7 @@ const ProfileModal: React.FC<ProfileModalProps> = ({ isOpen, onClose }) => {
                       <div className="flex items-center space-x-4">
                         <Avatar className="h-20 w-20">
                           <AvatarImage
-                            src={user?.avatar ? `http://localhost:5050/api/auth/avatar?${Date.now()}&user=${user?.email}` : undefined}
+                            src={user?.avatar ? `${import.meta.env.VITE_API_URL || 'http://localhost:5050'}/api/auth/avatar?${Date.now()}&user=${user?.email}` : undefined}
                             alt={user?.username}
                           />
                           <AvatarFallback className="bg-gradient-to-r from-blue-500 to-indigo-600 text-white text-lg">
@@ -289,7 +289,7 @@ const ProfileModal: React.FC<ProfileModalProps> = ({ isOpen, onClose }) => {
                       <div className="text-center">
                         <Avatar className="h-24 w-24 mx-auto mb-4">
                           <AvatarImage
-                            src={user?.avatar ? `http://localhost:5050/api/auth/avatar?${Date.now()}&user=${user?.email}` : undefined}
+                            src={user?.avatar ? `${import.meta.env.VITE_API_URL || 'http://localhost:5050'}/api/auth/avatar?${Date.now()}&user=${user?.email}` : undefined}
                             alt={user?.username}
                           />
                           <AvatarFallback className="bg-gradient-to-r from-blue-500 to-indigo-600 text-white text-xl">

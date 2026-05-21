@@ -32,10 +32,15 @@ load_dotenv()  # <-- Load .env variables
 
 app = Flask(__name__)
 # Robust CORS: allow frontend origins, auth header, and expose download filename
+frontend_url = os.getenv("FRONTEND_URL", "")
+allowed_origins = ["http://localhost:5173", "http://localhost:8080", "http://localhost:3000"]
+if frontend_url:
+    allowed_origins.append(frontend_url)
+
 CORS(
     app,
     resources={r"/*": {
-        "origins": ["http://localhost:5173", "http://localhost:8080"],
+        "origins": allowed_origins,
         "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
         "allow_headers": ["Authorization", "Content-Type"],
         "expose_headers": ["Content-Disposition"],
@@ -46,7 +51,7 @@ CORS(
 def add_cors_headers(response):
     try:
         origin = request.headers.get('Origin')
-        if origin in ["http://localhost:5173", "http://localhost:8080"]:
+        if origin in allowed_origins:
             response.headers['Access-Control-Allow-Origin'] = origin
         response.headers['Vary'] = 'Origin'
         response.headers['Access-Control-Allow-Headers'] = 'Authorization, Content-Type'

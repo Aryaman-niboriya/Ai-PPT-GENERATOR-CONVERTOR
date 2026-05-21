@@ -513,8 +513,8 @@ const Chatbot: React.FC = () => {
                     <div style={{ width: 32, height: 32, borderRadius: '50%', background: isDark ? '#2563eb' : '#bae6fd', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 2px 8px rgba(56,189,248,0.10)', overflow: 'hidden' }}>
                       {user?.avatar ? (
                         <img 
-                                                      src={`http://localhost:5050/api/auth/avatar?${Date.now()}&user=${user?.email}`} 
-                          alt="User Avatar" 
+                          src={`${import.meta.env.VITE_API_URL || 'http://localhost:5050'}/api/auth/avatar?${Date.now()}&user=${user?.email}`} 
+                          alt={user?.username || "You"} 
                           style={{ 
                             width: '100%', 
                             height: '100%', 

@@ -246,7 +246,7 @@ function Navbar() {
                     >
                       <Avatar className="h-8 w-8">
                         <AvatarImage
-                          src={user?.avatar ? `http://localhost:5050/api/auth/avatar?${Date.now()}&user=${user?.email}` : undefined}
+                          src={user?.avatar ? `${import.meta.env.VITE_API_URL || 'http://localhost:5050'}/api/auth/avatar?${Date.now()}&user=${user?.email}` : undefined}
                           alt={user?.username || user?.email}
                         />
                         <AvatarFallback className="bg-gradient-to-r from-blue-500 to-indigo-600 text-white">

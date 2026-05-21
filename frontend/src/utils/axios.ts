@@ -1,10 +1,10 @@
 import axios from 'axios';
 
 // Create axios instance
-const BACKEND_DOMAIN = typeof window !== 'undefined' ? window.location.hostname : 'localhost';
+const BACKEND_URL = import.meta.env.VITE_API_URL || 'http://localhost:5050';
 
 const api = axios.create({
-  baseURL: `http://${BACKEND_DOMAIN}:5050`,
+  baseURL: BACKEND_URL,
   // Increase timeout to allow slow LLM responses (longer generation times)
   timeout: 60000, // 60s
 });
