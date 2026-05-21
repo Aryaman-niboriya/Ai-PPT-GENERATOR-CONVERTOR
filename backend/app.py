@@ -31,21 +31,9 @@ from database import db_manager
 load_dotenv()  # <-- Load .env variables
 
 app = Flask(__name__)
-# Robust CORS: allow frontend origins, auth header, and expose download filename
-frontend_url = os.getenv("FRONTEND_URL", "")
+# CORS - allow all origins
+CORS(app, origins="*", allow_headers=["Authorization", "Content-Type"], expose_headers=["Content-Disposition"], methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"])
 allowed_origins = ["http://localhost:5173", "http://localhost:8080", "http://localhost:3000", "https://ai-pptcon-frontend.vercel.app"]
-if frontend_url:
-    allowed_origins.append(frontend_url)
-
-CORS(
-    app,
-    resources={r"/*": {
-        "origins": allowed_origins,
-        "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
-        "allow_headers": ["Authorization", "Content-Type"],
-        "expose_headers": ["Content-Disposition"],
-    }}
-)
 
 @app.after_request
 def add_cors_headers(response):
