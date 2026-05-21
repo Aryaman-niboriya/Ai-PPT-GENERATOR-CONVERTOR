@@ -3376,4 +3376,5 @@ def parse_slide(slide_data, topic):
     return title, bullets, color_scheme, image_keywords
 
 if __name__ == '__main__':
-    app.run(host="0.0.0.0", port=5050, debug=True)
+    # Run without Flask's reloader to avoid termios errors in non-interactive environments
+    app.run(host='0.0.0.0', port=5050, debug=False, use_reloader=False)
