@@ -87,9 +87,9 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
 
           <Button
             type="button"
-            variant="outline"
+            variant="ghost"
             disabled={loading}
-            className="w-full flex items-center justify-center gap-3 border border-[#4285F4] bg-white hover:bg-gray-50 text-[#1f2937] hover:text-black transition-all rounded-lg py-5 text-sm font-medium shadow-sm"
+            className="w-full h-14 border-2 border-[#4285F4] bg-white text-slate-900 hover:bg-white hover:border-[#2f6fe6] transition-colors rounded-xl text-lg font-medium gap-4 shadow-none [&_svg]:size-7"
             onClick={() => handleGoogleLogin()}
           >
             <svg className="h-5 w-5" viewBox="0 0 24 24">

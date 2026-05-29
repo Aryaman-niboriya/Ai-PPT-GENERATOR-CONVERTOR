@@ -226,6 +226,19 @@ def get_contrast_text_color(slide, slide_width, slide_height):
     based on the average brightness to ensure text readability.
     """
     try:
+        # Helper: estimate brightness from an image blob (0..255)
+        def _avg_brightness_from_blob(blob: bytes) -> float:
+            try:
+                from PIL import Image as PILImage
+                import io
+                with PILImage.open(io.BytesIO(blob)) as im:
+                    im = im.convert("L")  # grayscale
+                    im = im.resize((64, 64))
+                    px = list(im.getdata())
+                    return float(sum(px)) / max(1, len(px))
+            except Exception:
+                return 127.0
+
         # Check for background image
         # This is a simplified version. In a real scenario, we might scan the image.
         # For now, we look at the theme color or background fill if available.
@@ -237,7 +250,16 @@ def get_contrast_text_color(slide, slide_width, slide_height):
                 # If picture covers most of the slide, assume dark background for safety 
                 # (most presentation backgrounds are dark/image based)
                 if shape.width > slide_width * 0.8 and shape.height > slide_height * 0.8:
-                    return "dark" # implies light text
+                    # But many templates have LIGHT background images -> white text becomes invisible.
+                    # Estimate brightness from the embedded image blob when possible.
+                    try:
+                        blob = shape.image.blob
+                        brightness = _avg_brightness_from_blob(blob)
+                        # High brightness => light background => dark text
+                        return "light" if brightness > 155 else "dark"
+                    except Exception:
+                        # If we can't read it, default to light (safer for legibility on most templates)
+                        return "light"
         
         # Default to light background (= dark text)
         return "light"
@@ -538,28 +560,29 @@ def generate_gamma_style_ppt(slides_content, template_path=None, layout_index=No
                 p.font.size = Pt(18)
         
         # Image placement (if any) - Add image first so we can detect background
+        img_placeholder = None
         if image_path:
-            img_placeholder = None
             for shape in slide.shapes:
                 if shape.is_placeholder and shape.placeholder_format.type == 18:  # PICTURE
                     img_placeholder = shape
                     break
-        if img_placeholder and os.path.exists(image_path):
-            img_placeholder.insert_picture(image_path)
-        else:
-            if image_path and os.path.exists(image_path):
-                img = slide.shapes.add_picture(image_path, padding, slide_height - img_height - padding, width=img_width, height=img_height)
-                from PIL import Image as PILImage
-                with PILImage.open(image_path) as pil_img:
-                    aspect = pil_img.width / pil_img.height
-                    if img_width / img_height > aspect:
-                        new_width = int(img_height * aspect)
-                        img.width = new_width
-                        img.left = padding
-                    else:
-                        new_height = int(img_width / aspect)
-                        img.height = new_height
-                        img.top = slide_height - new_height - padding
+
+            if img_placeholder and os.path.exists(image_path):
+                img_placeholder.insert_picture(image_path)
+            else:
+                if os.path.exists(image_path):
+                    img = slide.shapes.add_picture(image_path, padding, slide_height - img_height - padding, width=img_width, height=img_height)
+                    from PIL import Image as PILImage
+                    with PILImage.open(image_path) as pil_img:
+                        aspect = pil_img.width / pil_img.height
+                        if img_width / img_height > aspect:
+                            new_width = int(img_height * aspect)
+                            img.width = new_width
+                            img.left = padding
+                        else:
+                            new_height = int(img_width / aspect)
+                            img.height = new_height
+                            img.top = slide_height - new_height - padding
         
         # Detect contrast and get appropriate text color AFTER adding image
         contrast_type = get_contrast_text_color(slide, slide_width, slide_height)

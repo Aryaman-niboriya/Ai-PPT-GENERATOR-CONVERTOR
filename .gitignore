@@ -30,6 +30,7 @@ frontend/build/
 Uploads/
 outputs/
 backend/avatars/
+backend/update_db_utils.py
 backend/*.json
 !backend/users.json
 !backend/chat_history.json
