@@ -843,39 +843,42 @@ def get_template_safe_zone(screenshot_path, slide_width_emu, slide_height_emu):
             w_pct = float(sa.get("w_pct", 84))
             h_pct = float(sa.get("h_pct", 66))
 
-        # Guard against degenerate values
-        x_pct = max(0, min(x_pct, 40))
-        y_pct = max(0, min(y_pct, 40))
-        w_pct = max(30, min(w_pct, 100 - x_pct))
-        h_pct = max(30, min(h_pct, 100 - y_pct))
+            # Guard against degenerate values
+            x_pct = max(0, min(x_pct, 40))
+            y_pct = max(0, min(y_pct, 40))
+            w_pct = max(30, min(w_pct, 100 - x_pct))
+            h_pct = max(30, min(h_pct, 100 - y_pct))
 
-        safe_area = {
-            "left":  int(slide_width_emu  * x_pct / 100),
-            "top":   int(slide_height_emu * y_pct / 100),
-            "width": int(slide_width_emu  * w_pct / 100),
-            "height":int(slide_height_emu * h_pct / 100),
-        }
+            safe_area = {
+                "left":  int(slide_width_emu  * x_pct / 100),
+                "top":   int(slide_height_emu * y_pct / 100),
+                "width": int(slide_width_emu  * w_pct / 100),
+                "height":int(slide_height_emu * h_pct / 100),
+            }
 
-        bg_theme = data.get("background_theme", "light")
-        hex_color = data.get("suggested_text_color_hex", "").lstrip("#")
-        if len(hex_color) == 6:
-            try:
-                text_color = RGBColor(
-                    int(hex_color[0:2], 16),
-                    int(hex_color[2:4], 16),
-                    int(hex_color[4:6], 16),
-                )
-            except Exception:
+            bg_theme = data.get("background_theme", "light")
+            hex_color = data.get("suggested_text_color_hex", "").lstrip("#")
+            if len(hex_color) == 6:
+                try:
+                    text_color = RGBColor(
+                        int(hex_color[0:2], 16),
+                        int(hex_color[2:4], 16),
+                        int(hex_color[4:6], 16),
+                    )
+                except Exception:
+                    text_color = RGBColor(0, 0, 0) if bg_theme == "light" else RGBColor(255, 255, 255)
+            else:
                 text_color = RGBColor(0, 0, 0) if bg_theme == "light" else RGBColor(255, 255, 255)
-        else:
-            text_color = RGBColor(0, 0, 0) if bg_theme == "light" else RGBColor(255, 255, 255)
 
-        print(f"[SAFE-ZONE] Gemini returned: x={x_pct}% y={y_pct}% w={w_pct}% h={h_pct}% theme={bg_theme}")
-        return {"safe_area": safe_area, "background_theme": bg_theme, "text_color": text_color}
+            print(f"[SAFE-ZONE] Gemini returned: x={x_pct}% y={y_pct}% w={w_pct}% h={h_pct}% theme={bg_theme}")
+            return {"safe_area": safe_area, "background_theme": bg_theme, "text_color": text_color}
 
-    except Exception as e:
-        print(f"[WARN] Gemini safe-zone detection failed ({e}), using fallback defaults")
-        return DEFAULT
+        except Exception as e:
+            print(f"[WARN] Gemini safe-zone detection attempt {attempt+1} failed ({e})")
+            if attempt == 0:
+                time.sleep(2)
+                continue
+            return DEFAULT
 
 
 def _inject_content_in_safe_zone(slide, safe_zone, title_text, body_shapes, slide_width, slide_height):
