@@ -514,20 +514,48 @@ def add_two_column_content(slide, slide_data, presentation, slide_width, slide_h
     add_body_column(right_x, right_w, body_right)
 
 def generate_gamma_style_ppt(slides_content, template_path=None, layout_index=None):
+    screenshot_path = None
+    safe_zone = None
     if template_path and os.path.exists(template_path):
         prs = Presentation(template_path)
         for i in range(len(prs.slides)-1, -1, -1):
             rId = prs.slides._sldIdLst[i].rId
             prs.part.drop_rel(rId)
             del prs.slides._sldIdLst[i]
+        
+        # Get template safe zone
+        screenshot_dir = os.path.join("Uploads", "screenshots")
+        os.makedirs(screenshot_dir, exist_ok=True)
+        screenshot_path = take_screenshot_of_master(template_path, screenshot_dir)
+        safe_zone = get_template_safe_zone(screenshot_path, prs.slide_width, prs.slide_height)
     else:
         prs = Presentation()
+
     # Use user-selected layout if provided
     if layout_index is not None and 0 <= layout_index < len(prs.slide_layouts):
         base_layout = prs.slide_layouts[layout_index]
     else:
         base_layout = prs.slide_layouts[6] if len(prs.slide_layouts) > 6 else prs.slide_layouts[0]
+
     for slide_data in slides_content:
+        # Add slide with selected or default layout
+        slide = prs.slides.add_slide(base_layout)
+        slide_width = prs.slide_width
+        slide_height = prs.slide_height
+
+        # Clear placeholder shapes to avoid overlap with our custom rendering
+        for shp in list(slide.shapes):
+            if getattr(shp, 'is_placeholder', False):
+                try:
+                    slide.shapes._spTree.remove(shp._element)
+                except:
+                    pass
+
+        if safe_zone:
+            # Re-route custom templates to safe-zone injector layout
+            add_content_to_slide(slide, slide_data, "title_content", slide_width, slide_height, safe_zone=safe_zone)
+            continue
+
         image_path = None
         image_desc = slide_data.get("image_desc")
         if image_desc:
@@ -535,23 +563,12 @@ def generate_gamma_style_ppt(slides_content, template_path=None, layout_index=No
                 image_path = fetch_image_from_unsplash(image_desc)
             except Exception as e:
                 print(f"Image fetch failed for '{image_desc}': {e}")
-        # Add slide with selected or default layout
-        slide = prs.slides.add_slide(base_layout)
-        slide_width = prs.slide_width
-        slide_height = prs.slide_height
+
         padding = Inches(0.5)
         img_width = int(slide_width * 0.4)
         img_height = int(slide_height * 0.6)
-        # Find first textbox placeholder (for text)
-        txBox = None
-        for shape in slide.shapes:
-            if shape.is_placeholder and shape.placeholder_format.type in [1, 2, 14]:  # TITLE, BODY, CONTENT
-                txBox = shape
-                break
-        
-        if not txBox:
-            txBox = slide.shapes.add_textbox(padding, padding, slide_width - 2*padding, slide_height - 2*padding)
-        # If layout requests two-column text, render that and skip default single-column text
+        txBox = slide.shapes.add_textbox(padding, padding, slide_width - 2*padding, slide_height - 2*padding)
+
         layout_name = str(slide_data.get("layout", "")).strip().lower()
         if layout_name in ("two-column", "two column", "two columns"):
             add_two_column_content(slide, slide_data, prs, slide_width, slide_height)
@@ -566,30 +583,20 @@ def generate_gamma_style_ppt(slides_content, template_path=None, layout_index=No
                 p.level = 1
                 p.font.size = Pt(18)
         
-        # Image placement (if any) - Add image first so we can detect background
-        img_placeholder = None
-        if image_path:
-            for shape in slide.shapes:
-                if shape.is_placeholder and shape.placeholder_format.type == 18:  # PICTURE
-                    img_placeholder = shape
-                    break
-
-            if img_placeholder and os.path.exists(image_path):
-                img_placeholder.insert_picture(image_path)
-            else:
-                if os.path.exists(image_path):
-                    img = slide.shapes.add_picture(image_path, padding, slide_height - img_height - padding, width=img_width, height=img_height)
-                    from PIL import Image as PILImage
-                    with PILImage.open(image_path) as pil_img:
-                        aspect = pil_img.width / pil_img.height
-                        if img_width / img_height > aspect:
-                            new_width = int(img_height * aspect)
-                            img.width = new_width
-                            img.left = padding
-                        else:
-                            new_height = int(img_width / aspect)
-                            img.height = new_height
-                            img.top = slide_height - new_height - padding
+        # Image placement (if any)
+        if image_path and os.path.exists(image_path):
+            img = slide.shapes.add_picture(image_path, padding, slide_height - img_height - padding, width=img_width, height=img_height)
+            from PIL import Image as PILImage
+            with PILImage.open(image_path) as pil_img:
+                aspect = pil_img.width / pil_img.height
+                if img_width / img_height > aspect:
+                    new_width = int(img_height * aspect)
+                    img.width = new_width
+                    img.left = padding
+                else:
+                    new_height = int(img_width / aspect)
+                    img.height = new_height
+                    img.top = slide_height - new_height - padding
         
         # Detect contrast and get appropriate text color AFTER adding image
         contrast_type = get_contrast_text_color(slide, slide_width, slide_height)
@@ -1112,11 +1119,12 @@ def generate_ppt(content_path, template_path, layout_index=1):
 
         # Pick the blank-ish layout (fewest placeholders) so the template bg shows
         def _pick_layout(prs):
-            best_idx, best_cnt = 0, 9999
+            best_idx = 0
+            best_cnt = 9999
             for li, sl in enumerate(prs.slide_layouts):
                 if sl.name and 'blank' in sl.name.lower():
                     return li
-                cnt = sum(1 for sp in sl.placeholders)
+                cnt = len(sl.placeholders)
                 if cnt < best_cnt:
                     best_cnt, best_idx = cnt, li
             return best_idx
@@ -1440,6 +1448,8 @@ def generate_enhanced_ppt(slides_content, template_path=None, layout_preference=
     """
     Enhanced PPT generation with proper layout handling, text fitting, and template preservation.
     """
+    screenshot_path = None
+    safe_zone = None
     if template_path and os.path.exists(template_path):
         prs = Presentation(template_path)
         # Clear existing slides but keep template structure (masters, themes, backgrounds)
@@ -1447,6 +1457,12 @@ def generate_enhanced_ppt(slides_content, template_path=None, layout_preference=
             rId = prs.slides._sldIdLst[i].rId
             prs.part.drop_rel(rId)
             del prs.slides._sldIdLst[i]
+
+        # Get template safe zone
+        screenshot_dir = os.path.join("Uploads", "screenshots")
+        os.makedirs(screenshot_dir, exist_ok=True)
+        screenshot_path = take_screenshot_of_master(template_path, screenshot_dir)
+        safe_zone = get_template_safe_zone(screenshot_path, prs.slide_width, prs.slide_height)
     else:
         prs = Presentation()
     
@@ -1474,9 +1490,16 @@ def generate_enhanced_ppt(slides_content, template_path=None, layout_preference=
                 except:
                     pass
         
-        # Add content with proper fitting
-        add_content_to_slide(slide, slide_data, layout_type, slide_width, slide_height)
+        # Add content with proper fitting and safe-zone awareness
+        add_content_to_slide(slide, slide_data, layout_type, slide_width, slide_height, safe_zone=safe_zone)
     
+    # Cleanup screenshot temp file
+    try:
+        if screenshot_path and os.path.exists(screenshot_path):
+            os.remove(screenshot_path)
+    except:
+        pass
+
     # Save the presentation
     output_filename = f"enhanced_ai_pptx_{uuid.uuid4().hex[:8]}.pptx"
     output_path = os.path.join("outputs", output_filename)
@@ -1484,6 +1507,15 @@ def generate_enhanced_ppt(slides_content, template_path=None, layout_preference=
     prs.save(output_path)
     
     return output_path
+
+
+def get_layout_metrics(safe_zone, slide_width, slide_height):
+    if safe_zone:
+        sz = safe_zone["safe_area"]
+        return sz["left"], sz["top"], sz["width"], sz["height"], safe_zone["text_color"]
+    else:
+        return Inches(0.8), Inches(0.5), slide_width - Inches(1.6), slide_height - Inches(1.0), None
+
 
 def determine_layout_type(slide_data, layout_preference, slide_index):
     """
@@ -1559,7 +1591,7 @@ def _fit_font_size(text_items, max_width_emu, max_height_emu, base_size_pt=18, m
     
     return Pt(min_size_pt)
 
-def add_content_to_slide(slide, slide_data, layout_type, slide_width, slide_height):
+def add_content_to_slide(slide, slide_data, layout_type, slide_width, slide_height, safe_zone=None):
     """
     Add content to slide with proper fitting based on layout type.
     """
@@ -1577,30 +1609,34 @@ def add_content_to_slide(slide, slide_data, layout_type, slide_width, slide_heig
             print(f"Image fetch failed for '{image_desc}': {e}")
     
     if layout_type == "title_slide":
-        _add_title_slide(slide, title, bullets, image_path, theme, slide_width, slide_height)
+        _add_title_slide(slide, title, bullets, image_path, theme, slide_width, slide_height, safe_zone=safe_zone)
     elif layout_type == "title_content":
-        _add_title_content(slide, title, bullets, theme, slide_width, slide_height)
+        _add_title_content(slide, title, bullets, theme, slide_width, slide_height, safe_zone=safe_zone)
     elif layout_type == "image_left":
-        _add_image_side(slide, title, bullets, image_path, theme, slide_width, slide_height, image_on_left=True)
+        _add_image_side(slide, title, bullets, image_path, theme, slide_width, slide_height, image_on_left=True, safe_zone=safe_zone)
     elif layout_type == "image_right":
-        _add_image_side(slide, title, bullets, image_path, theme, slide_width, slide_height, image_on_left=False)
+        _add_image_side(slide, title, bullets, image_path, theme, slide_width, slide_height, image_on_left=False, safe_zone=safe_zone)
     elif layout_type == "full_image":
         _add_full_image(slide, title, bullets, image_path, theme, slide_width, slide_height)
     elif layout_type == "two_column":
-        _add_two_column(slide, title, bullets, theme, slide_width, slide_height)
+        _add_two_column(slide, title, bullets, theme, slide_width, slide_height, safe_zone=safe_zone)
     else:
         # Fallback
-        _add_title_content(slide, title, bullets, theme, slide_width, slide_height)
+        _add_title_content(slide, title, bullets, theme, slide_width, slide_height, safe_zone=safe_zone)
 
 def _get_text_color(slide, slide_width, slide_height, theme):
     """Get appropriate text color based on background contrast."""
     contrast_type = get_contrast_text_color(slide, slide_width, slide_height)
     return get_text_color_for_contrast(contrast_type, theme)
 
-def _add_title_slide(slide, title, bullets, image_path, theme, slide_width, slide_height):
+def _add_title_slide(slide, title, bullets, image_path, theme, slide_width, slide_height, safe_zone=None):
     """Title/intro slide with centered large title and optional subtitle bullets."""
-    # Add background image if available
-    if image_path and os.path.exists(image_path):
+    left, top, width, height, text_color = get_layout_metrics(safe_zone, slide_width, slide_height)
+    if text_color is None:
+        text_color = _get_text_color(slide, slide_width, slide_height, theme)
+
+    # Add background image if available (only if no safe zone)
+    if image_path and os.path.exists(image_path) and not safe_zone:
         slide.shapes.add_picture(image_path, 0, 0, slide_width, slide_height)
         # Add dark overlay for readability
         overlay = slide.shapes.add_shape(1, 0, 0, slide_width, slide_height)
@@ -1612,14 +1648,11 @@ def _add_title_slide(slide, title, bullets, image_path, theme, slide_width, slid
             pass
         overlay.line.fill.background()
         text_color = RGBColor(255, 255, 255)
-    else:
-        text_color = _get_text_color(slide, slide_width, slide_height, theme)
     
     # Title: centered vertically
-    margin_h = Inches(1.2)
     title_box = slide.shapes.add_textbox(
-        int(margin_h), int(slide_height * 0.25),
-        int(slide_width - 2 * margin_h), int(slide_height * 0.3)
+        left, top + int(height * 0.15),
+        width, int(height * 0.4)
     )
     tf = title_box.text_frame
     tf.clear()
@@ -1637,8 +1670,8 @@ def _add_title_slide(slide, title, bullets, image_path, theme, slide_width, slid
     if bullets:
         subtitle_text = " | ".join(bullets[:3])
         sub_box = slide.shapes.add_textbox(
-            int(margin_h), int(slide_height * 0.58),
-            int(slide_width - 2 * margin_h), int(slide_height * 0.2)
+            left, top + int(height * 0.6),
+            width, int(height * 0.25)
         )
         sf = sub_box.text_frame
         sf.clear()
@@ -1652,19 +1685,15 @@ def _add_title_slide(slide, title, bullets, image_path, theme, slide_width, slid
             run.font.bold = False
             run.font.color.rgb = text_color
 
-def _add_title_content(slide, title, bullets, theme, slide_width, slide_height):
+def _add_title_content(slide, title, bullets, theme, slide_width, slide_height, safe_zone=None):
     """Standard title + bullet points layout with auto-fitting text."""
-    text_color = _get_text_color(slide, slide_width, slide_height, theme)
-    
-    margin_h = Inches(0.8)
-    margin_v = Inches(0.5)
-    content_width = slide_width - 2 * int(margin_h)
+    left, top, width, height, text_color = get_layout_metrics(safe_zone, slide_width, slide_height)
+    if text_color is None:
+        text_color = _get_text_color(slide, slide_width, slide_height, theme)
     
     # Title box at top
-    title_height = int(slide_height * 0.18)
-    title_box = slide.shapes.add_textbox(
-        int(margin_h), int(margin_v), content_width, title_height
-    )
+    title_height = int(height * 0.18)
+    title_box = slide.shapes.add_textbox(left, top, width, title_height)
     tf = title_box.text_frame
     tf.clear()
     tf.word_wrap = True
@@ -1678,10 +1707,10 @@ def _add_title_content(slide, title, bullets, theme, slide_width, slide_height):
         run.font.color.rgb = text_color
     
     # Divider line
-    divider_top = int(margin_v) + title_height + int(Inches(0.1))
+    divider_top = top + title_height + int(Inches(0.1))
     div = slide.shapes.add_shape(
-        1, int(margin_h), divider_top,
-        int(content_width * 0.3), Inches(0.04)
+        1, left, divider_top,
+        int(width * 0.3), Inches(0.04)
     )
     try:
         primary_color = theme[0] if theme else "#1a365d"
@@ -1694,14 +1723,12 @@ def _add_title_content(slide, title, bullets, theme, slide_width, slide_height):
 
     # Bullets box
     bullets_top = divider_top + int(Inches(0.25))
-    bullets_height = slide_height - bullets_top - int(margin_v)
+    bullets_height = top + height - bullets_top
     
     # Calculate adaptive font size
-    body_font = _fit_font_size(bullets, content_width, bullets_height, base_size_pt=20, min_size_pt=12)
+    body_font = _fit_font_size(bullets, width, bullets_height, base_size_pt=20, min_size_pt=12)
     
-    bullets_box = slide.shapes.add_textbox(
-        int(margin_h), bullets_top, content_width, bullets_height
-    )
+    bullets_box = slide.shapes.add_textbox(left, bullets_top, width, bullets_height)
     bf = bullets_box.text_frame
     bf.clear()
     bf.word_wrap = True
@@ -1719,19 +1746,18 @@ def _add_title_content(slide, title, bullets, theme, slide_width, slide_height):
             run.font.bold = False
             run.font.color.rgb = text_color
 
-def _add_image_side(slide, title, bullets, image_path, theme, slide_width, slide_height, image_on_left=True):
+def _add_image_side(slide, title, bullets, image_path, theme, slide_width, slide_height, image_on_left=True, safe_zone=None):
     """Layout with image on one side and text on the other. Handles aspect ratio properly."""
-    text_color = _get_text_color(slide, slide_width, slide_height, theme)
+    left, top, width, height, text_color = get_layout_metrics(safe_zone, slide_width, slide_height)
+    if text_color is None:
+        text_color = _get_text_color(slide, slide_width, slide_height, theme)
     
-    margin = Inches(0.4)
     gap = Inches(0.3)
-    top_margin = Inches(0.4)
-    bottom_margin = Inches(0.4)
     
     # Image takes 42% width, text takes remaining
-    img_width_max = int(slide_width * 0.42)
-    img_height_max = slide_height - int(top_margin) - int(bottom_margin)
-    text_width = slide_width - img_width_max - int(margin) - int(gap)
+    img_width_max = int(width * 0.42)
+    img_height_max = height
+    text_width = width - img_width_max - int(gap)
     
     # Place image with proper aspect ratio
     actual_img_width = img_width_max
@@ -1754,12 +1780,12 @@ def _add_image_side(slide, title, bullets, image_path, theme, slide_width, slide
         actual_img_height = h
         
         if image_on_left:
-            img_left = int(margin)
+            img_left = left
         else:
-            img_left = slide_width - int(margin) - actual_img_width
+            img_left = left + width - actual_img_width
         
         # Center vertically
-        img_top = int(top_margin) + max(0, (img_height_max - actual_img_height) // 2)
+        img_top = top + max(0, (img_height_max - actual_img_height) // 2)
         
         # Add rounded corner effect by adding image
         slide.shapes.add_picture(
@@ -1769,12 +1795,12 @@ def _add_image_side(slide, title, bullets, image_path, theme, slide_width, slide
     
     # Text region
     if image_on_left:
-        text_left = int(margin) + actual_img_width + int(gap)
+        text_left = left + actual_img_width + int(gap)
     else:
-        text_left = int(margin)
+        text_left = left
     
-    text_top = int(top_margin)
-    text_height = slide_height - int(top_margin) - int(bottom_margin)
+    text_top = top
+    text_height = height
     
     # Title
     title_height = int(text_height * 0.2)
@@ -1882,18 +1908,17 @@ def _add_full_image(slide, title, bullets, image_path, theme, slide_width, slide
             run.font.bold = False
             run.font.color.rgb = text_color
 
-def _add_two_column(slide, title, bullets, theme, slide_width, slide_height):
+def _add_two_column(slide, title, bullets, theme, slide_width, slide_height, safe_zone=None):
     """Two-column layout with title on top and bullets split into two columns."""
-    text_color = _get_text_color(slide, slide_width, slide_height, theme)
+    left, top, width, height, text_color = get_layout_metrics(safe_zone, slide_width, slide_height)
+    if text_color is None:
+        text_color = _get_text_color(slide, slide_width, slide_height, theme)
     
-    margin_h = Inches(0.8)
-    margin_v = Inches(0.5)
     gap = Inches(0.5)
-    content_width = slide_width - 2 * int(margin_h)
     
     # Title
-    title_height = int(slide_height * 0.18)
-    title_box = slide.shapes.add_textbox(int(margin_h), int(margin_v), content_width, title_height)
+    title_height = int(height * 0.18)
+    title_box = slide.shapes.add_textbox(left, top, width, title_height)
     tf = title_box.text_frame
     tf.clear()
     tf.word_wrap = True
@@ -1907,10 +1932,10 @@ def _add_two_column(slide, title, bullets, theme, slide_width, slide_height):
         run.font.color.rgb = text_color
     
     # Divider
-    div_top = int(margin_v) + title_height + int(Inches(0.1))
+    div_top = top + title_height + int(Inches(0.1))
     div = slide.shapes.add_shape(
-        1, int(margin_h) + int(content_width * 0.35), div_top,
-        int(content_width * 0.3), Inches(0.04)
+        1, left + int(width * 0.35), div_top,
+        int(width * 0.3), Inches(0.04)
     )
     try:
         primary_color = theme[0] if theme else "#1a365d"
@@ -1927,8 +1952,8 @@ def _add_two_column(slide, title, bullets, theme, slide_width, slide_height):
     right_bullets = bullets[mid:]
     
     col_top = div_top + int(Inches(0.3))
-    col_height = slide_height - col_top - int(margin_v)
-    col_width = (content_width - int(gap)) // 2
+    col_height = top + height - col_top
+    col_width = (width - int(gap)) // 2
     
     body_font = _fit_font_size(left_bullets or right_bullets, col_width, col_height, base_size_pt=16, min_size_pt=10)
     
@@ -1950,6 +1975,6 @@ def _add_two_column(slide, title, bullets, theme, slide_width, slide_height):
                 run.font.color.rgb = text_color
     
     # Left column
-    add_column(int(margin_h), left_bullets)
+    add_column(left, left_bullets)
     # Right column
-    add_column(int(margin_h) + col_width + int(gap), right_bullets)
+    add_column(left + col_width + int(gap), right_bullets)
