@@ -170,7 +170,7 @@ def fetch_image_from_pollinations(query, save_dir="Uploads/images"):
 
 def fetch_image_from_unsplash(query, save_dir="Uploads/images"):
     """Fetch a relevant image from Unsplash (primary source).
-    Falls back to Pollinations (1 free image), then Pexels, then placeholder.
+    Falls back to Pollinations AI, then placeholder.
     """
     try:
         api_key = (os.getenv("UNSPLASH_API_KEY") or UNSPLASH_API_KEY or "").strip()
@@ -196,7 +196,7 @@ def fetch_image_from_unsplash(query, save_dir="Uploads/images"):
         }
         params = {
             "query": q,
-            "per_page": 3,
+            "per_page": 5,
             "content_filter": "high",
             "orientation": "landscape"
         }
@@ -217,15 +217,15 @@ def fetch_image_from_unsplash(query, save_dir="Uploads/images"):
                 img.raise_for_status()
                 with open(image_path, "wb") as f:
                     f.write(img.content)
-                rel_path = os.path.join(save_dir, image_filename)
-                print(f"  ✅ Unsplash image fetched for '{q}': {rel_path}")
-                return rel_path
+                print(f"  ✅ Unsplash image fetched for '{q}': {image_path}")
+                return image_path  # Return ABSOLUTE path always
 
-        print(f"  No Unsplash results for '{q}', trying placeholder...")
-        return create_placeholder_image(query, save_dir)
+        # No Unsplash results → try Pollinations AI (generates real image, not blue box)
+        print(f"  No Unsplash results for '{q}', trying Pollinations AI...")
+        return fetch_image_from_pollinations(query, save_dir)
     except Exception as e:
-        print(f"  Unsplash failed for '{query}': {e}. Trying placeholder...")
-        return create_placeholder_image(query, save_dir)
+        print(f"  Unsplash failed for '{query}': {e}. Trying Pollinations...")
+        return fetch_image_from_pollinations(query, save_dir)
 
 def get_contrast_text_color(slide, slide_width, slide_height):
     """
@@ -1647,10 +1647,9 @@ def _add_title_slide(slide, title, bullets, image_path, theme, slide_width, slid
     if text_color is None:
         text_color = _get_text_color(slide, slide_width, slide_height, theme)
 
-    # Add background image if available (only if no safe zone)
+    # If no template (no safe_zone): add full-bleed background image with overlay
     if image_path and os.path.exists(image_path) and not safe_zone:
         slide.shapes.add_picture(image_path, 0, 0, slide_width, slide_height)
-        # Add dark overlay for readability
         overlay = slide.shapes.add_shape(1, 0, 0, slide_width, slide_height)
         overlay.fill.solid()
         overlay.fill.fore_color.rgb = RGBColor(0, 0, 0)
@@ -1661,7 +1660,21 @@ def _add_title_slide(slide, title, bullets, image_path, theme, slide_width, slid
         overlay.line.fill.background()
         text_color = RGBColor(255, 255, 255)
     
-    # Title: centered vertically
+    # If template (safe_zone): add image as right-side decorative panel
+    if image_path and os.path.exists(image_path) and safe_zone:
+        # Place image on right 40% of safe area
+        img_w = int(width * 0.40)
+        img_h = int(height * 0.65)
+        img_left = left + width - img_w
+        img_top = top + int(height * 0.17)
+        try:
+            slide.shapes.add_picture(image_path, img_left, img_top, img_w, img_h)
+        except Exception as img_err:
+            print(f"Title slide image panel failed: {img_err}")
+        # Shrink text area so it doesn't overlap image
+        width = width - img_w - int(Inches(0.2))
+
+    # Title: centered vertically in available area
     title_box = slide.shapes.add_textbox(
         left, top + int(height * 0.15),
         width, int(height * 0.4)
