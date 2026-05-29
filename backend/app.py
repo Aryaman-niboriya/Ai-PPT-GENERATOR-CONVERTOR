@@ -219,8 +219,13 @@ def save_chat_history(chat_history):
         try:
             operations = []
             for email, chats in chat_history.items():
+                user = db_manager.get_user_by_email(email)
+                user_id = user.get('user_id') if user else None
                 for chat in chats:
                     chat['email'] = email
+                    chat['user_email'] = email
+                    if user_id:
+                        chat['user_id'] = user_id
                     operations.append(UpdateOne({"id": chat['id']}, {"$set": chat}, upsert=True))
             if operations:
                 db_manager.db.chat_history.bulk_write(operations)
@@ -389,8 +394,25 @@ def save_user_activities(user_activities):
         try:
             operations = []
             for email, activities in user_activities.items():
+                user = db_manager.get_user_by_email(email)
+                user_id = user.get('user_id') if user else None
                 for activity in activities:
                     activity['email'] = email
+                    activity['user_email'] = email
+                    if user_id:
+                        activity['user_id'] = user_id
+                    
+                    # Convert string timestamp to datetime object for activity_date sorting
+                    if 'timestamp' in activity and 'activity_date' not in activity:
+                        try:
+                            # Handle formats like '2026-05-29T16:28:23.123456' or with 'Z'
+                            timestamp_str = activity['timestamp'].replace('Z', '+00:00')
+                            activity['activity_date'] = datetime.fromisoformat(timestamp_str)
+                        except Exception:
+                            activity['activity_date'] = datetime.utcnow()
+                    elif 'activity_date' not in activity:
+                        activity['activity_date'] = datetime.utcnow()
+                        
                     operations.append(UpdateOne({"id": activity['id']}, {"$set": activity}, upsert=True))
             if operations:
                 db_manager.db.user_activities.bulk_write(operations)
