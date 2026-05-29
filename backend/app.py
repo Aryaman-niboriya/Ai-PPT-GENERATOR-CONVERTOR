@@ -1597,11 +1597,15 @@ Create a detailed PowerPoint presentation on the topic: '{topic}'.\nFor each sli
             if attempt < 2:
                 time.sleep(1.5 * (attempt + 1))
             else:
-                # Fallback minimal slides (5)
+                # Fallback minimal slides (5) with unique image descriptions per slide
+                fallback_subtopics = [
+                    f"{topic} overview", f"{topic} introduction", f"{topic} details",
+                    f"{topic} analysis", f"{topic} conclusion"
+                ]
                 slides = [{
                     "title": f"{topic} - Slide {i+1}",
-                    "bullets": ["Point 1", "Point 2", "Point 3"],
-                    "image_desc": topic,
+                    "bullets": ["Key point about this topic", "Important detail here", "Summary of findings"],
+                    "image_desc": fallback_subtopics[i % len(fallback_subtopics)],
                     "layout": "title-content",
                     "theme": ["#003087", "#FFFFFF"]
                 } for i in range(5)]
@@ -1829,23 +1833,35 @@ Reply ONLY with a valid JSON array containing EXACTLY {num_slides} objects. No m
             if attempt < 2:
                 time.sleep(1.5 * (attempt + 1))
     if not slides:
-        # Fallback: generate placeholder slides matching requested count
+        # Fallback: generate placeholder slides with unique image descriptions per slide
+        topic_words = topic.split()
+        subtopic_keywords = [
+            " ".join(topic_words[:2]) + " introduction" if len(topic_words) >= 2 else topic + " intro",
+            topic + " overview", topic + " technology", topic + " process",
+            topic + " benefits", topic + " challenges", topic + " future",
+            topic + " research", topic + " impact", topic + " conclusion",
+        ]
         slides = [{
-            "title": f"{topic} - Slide {i+1}",
-            "bullets": ["Point 1", "Point 2", "Point 3"],
-            "image_desc": topic,
-            "layout": layout_preference,
+            "title": f"{topic} - Part {i+1}",
+            "bullets": [
+                f"Key aspect of {topic} covered in this section",
+                f"Important detail and analysis for part {i+1}",
+                f"Summary and findings for this topic area",
+            ],
+            "image_desc": subtopic_keywords[i % len(subtopic_keywords)],
+            "layout": layout_preference if layout_preference != "auto" else "title-content",
             "theme": ["#003087", "#FFFFFF"]
         } for i in range(num_slides)]
     # Ensure exact count
     if len(slides) > num_slides:
         slides = slides[:num_slides]
     while len(slides) < num_slides:
+        extra_idx = len(slides)
         slides.append({
-            "title": f"Additional Slide {len(slides) + 1}",
-            "bullets": ["Content to be added"],
-            "image_desc": topic,
-            "layout": layout_preference,
+            "title": f"{topic} - Additional Points {extra_idx + 1}",
+            "bullets": [f"Additional key point about {topic}", "Further analysis", "Extended coverage"],
+            "image_desc": f"{topic} part {extra_idx + 1}",
+            "layout": layout_preference if layout_preference != "auto" else "title-content",
             "theme": ["#003087", "#FFFFFF"]
         })
 
