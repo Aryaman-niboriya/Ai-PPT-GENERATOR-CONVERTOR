@@ -753,9 +753,9 @@ def get_template_safe_zone(screenshot_path, slide_width_emu, slide_height_emu):
     DEFAULT = {
         "safe_area": {
             "left": int(slide_width_emu * 0.08),
-            "top": int(slide_height_emu * 0.15),
+            "top": int(slide_height_emu * 0.24),  # Safer fallback to clear headers
             "width": int(slide_width_emu * 0.84),
-            "height": int(slide_height_emu * 0.75),
+            "height": int(slide_height_emu * 0.66),
         },
         "background_theme": "light",
         "text_color": RGBColor(0x1a, 0x36, 0x5d),
@@ -770,69 +770,78 @@ def get_template_safe_zone(screenshot_path, slide_width_emu, slide_height_emu):
         print("[WARN] Screenshot not available – using default safe zone")
         return DEFAULT
 
-    try:
-        with open(screenshot_path, "rb") as f:
-            img_bytes = f.read()
-        img_b64 = base64.b64encode(img_bytes).decode("utf-8")
+    import time
+    for attempt in range(2):
+        try:
+            with open(screenshot_path, "rb") as f:
+                img_bytes = f.read()
+            img_b64 = base64.b64encode(img_bytes).decode("utf-8")
 
-        prompt = (
-            "You are a PowerPoint layout analyst.\n"
-            "Analyze this slide template image carefully.\n"
-            "Identify ALL background design elements: logos, university/company headers, "
-            "footers, decorative borders, watermarks, and any branded imagery.\n"
-            "Determine the rectangular area (safe_area) where new body content "
-            "(title text, bullet points, images) can be injected WITHOUT overlapping "
-            "any background element.\n"
-            "Express all coordinates as PERCENTAGES of the slide dimensions (0-100).\n"
-            "Also detect whether the overall background is predominantly light or dark.\n"
-            "Return ONLY a valid JSON object with this exact structure:\n"
-            "{\n"
-            "  \"safe_area\": {\n"
-            "    \"x_pct\": <float>,\n"
-            "    \"y_pct\": <float>,\n"
-            "    \"w_pct\": <float>,\n"
-            "    \"h_pct\": <float>\n"
-            "  },\n"
-            "  \"background_theme\": \"light\" | \"dark\",\n"
-            "  \"suggested_text_color_hex\": \"#rrggbb\"\n"
-            "}"
-        )
+            prompt = (
+                "You are a PowerPoint layout analyst.\n"
+                "Analyze this slide template image carefully.\n"
+                "Identify ALL background design elements: logos, university/company headers, "
+                "footers, decorative borders, watermarks, and any branded imagery.\n"
+                "Determine the rectangular area (safe_area) where new body content "
+                "(title text, bullet points, images) can be injected WITHOUT overlapping "
+                "any background element.\n"
+                "Express all coordinates as PERCENTAGES of the slide dimensions (0-100).\n"
+                "Also detect whether the overall background is predominantly light or dark.\n"
+                "Return ONLY a valid JSON object with this exact structure:\n"
+                "{\n"
+                "  \"safe_area\": {\n"
+                "    \"x_pct\": <float>,\n"
+                "    \"y_pct\": <float>,\n"
+                "    \"w_pct\": <float>,\n"
+                "    \"h_pct\": <float>\n"
+                "  },\n"
+                "  \"background_theme\": \"light\" | \"dark\",\n"
+                "  \"suggested_text_color_hex\": \"#rrggbb\"\n"
+                "}"
+            )
 
-        payload = {
-            "contents": [{
-                "parts": [
-                    {"inlineData": {"mimeType": "image/png", "data": img_b64}},
-                    {"text": prompt}
-                ]
-            }],
-            "generationConfig": {
-                "response_mime_type": "application/json",
-                "temperature": 0.0
+            payload = {
+                "contents": [{
+                    "parts": [
+                        {"inlineData": {"mimeType": "image/png", "data": img_b64}},
+                        {"text": prompt}
+                    ]
+                }],
+                "generationConfig": {
+                    "response_mime_type": "application/json",
+                    "temperature": 0.0
+                }
             }
-        }
 
-        resp = requests.post(
-            f"{GEMINI_VISION_URL}?key={api_key}",
-            headers={"Content-Type": "application/json"},
-            json=payload,
-            timeout=30
-        )
-        resp.raise_for_status()
-        raw_text = (resp.json()
-                    .get("candidates", [{}])[0]
-                    .get("content", {})
-                    .get("parts", [{}])[0]
-                    .get("text", "{}"))
+            resp = requests.post(
+                f"{GEMINI_VISION_URL}?key={api_key}",
+                headers={"Content-Type": "application/json"},
+                json=payload,
+                timeout=30
+            )
+            
+            # Handle rate limits
+            if resp.status_code == 429 and attempt == 0:
+                print("[WARN] Gemini 429 rate limit hit – retrying in 3 seconds...")
+                time.sleep(3)
+                continue
+                
+            resp.raise_for_status()
+            raw_text = (resp.json()
+                        .get("candidates", [{}])[0]
+                        .get("content", {})
+                        .get("parts", [{}])[0]
+                        .get("text", "{}"))
 
-        # Strip markdown code fences if present
-        raw_text = re.sub(r"```[a-zA-Z]*\n?", "", raw_text).strip("`").strip()
-        data = json.loads(raw_text)
+            # Strip markdown code fences if present
+            raw_text = re.sub(r"```[a-zA-Z]*\n?", "", raw_text).strip("`").strip()
+            data = json.loads(raw_text)
 
-        sa = data.get("safe_area", {})
-        x_pct = float(sa.get("x_pct", 8))
-        y_pct = float(sa.get("y_pct", 15))
-        w_pct = float(sa.get("w_pct", 84))
-        h_pct = float(sa.get("h_pct", 75))
+            sa = data.get("safe_area", {})
+            x_pct = float(sa.get("x_pct", 8))
+            y_pct = float(sa.get("y_pct", 24))
+            w_pct = float(sa.get("w_pct", 84))
+            h_pct = float(sa.get("h_pct", 66))
 
         # Guard against degenerate values
         x_pct = max(0, min(x_pct, 40))
