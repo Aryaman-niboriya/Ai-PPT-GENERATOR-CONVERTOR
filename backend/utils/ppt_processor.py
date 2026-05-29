@@ -9,6 +9,7 @@ from copy import deepcopy
 import platform
 import shutil
 import subprocess
+import base64
 try:
     import spacy  # type: ignore
 except Exception:
@@ -18,6 +19,12 @@ import json
 import re
 from PIL import Image
 import io
+from dotenv import load_dotenv
+load_dotenv()
+
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+GEMINI_VISION_URL = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent"
 
 # Optional Windows-only COM automation (guarded)
 WIN32_AVAILABLE = False
@@ -725,6 +732,232 @@ def add_text_box(slide, src_shape, slide_width, slide_height, scale_factor, pres
 def add_image_to_slide(slide, image_path, left, top, width, height, slide_width, slide_height, scale_factor):
     slide.shapes.add_picture(image_path, int(left), int(top), width=int(width), height=int(height))
 
+def get_template_safe_zone(screenshot_path, slide_width_emu, slide_height_emu):
+    """
+    Sends a template slide screenshot to Gemini Vision and returns safe-zone
+    coordinates (in EMU) where content can be injected without overlapping logos,
+    headers, footers, or decorative backgrounds.
+
+    Returns a dict with keys:
+        safe_area        - {left, top, width, height} in EMU
+        background_theme - 'light' | 'dark'
+        text_color       - RGBColor instance
+    """
+    DEFAULT = {
+        "safe_area": {
+            "left": int(slide_width_emu * 0.08),
+            "top": int(slide_height_emu * 0.15),
+            "width": int(slide_width_emu * 0.84),
+            "height": int(slide_height_emu * 0.75),
+        },
+        "background_theme": "light",
+        "text_color": RGBColor(0x1a, 0x36, 0x5d),
+    }
+
+    api_key = GEMINI_API_KEY
+    if not api_key:
+        print("[WARN] GEMINI_API_KEY not set – using default safe zone")
+        return DEFAULT
+
+    if not screenshot_path or not os.path.exists(screenshot_path):
+        print("[WARN] Screenshot not available – using default safe zone")
+        return DEFAULT
+
+    try:
+        with open(screenshot_path, "rb") as f:
+            img_bytes = f.read()
+        img_b64 = base64.b64encode(img_bytes).decode("utf-8")
+
+        prompt = (
+            "You are a PowerPoint layout analyst.\n"
+            "Analyze this slide template image carefully.\n"
+            "Identify ALL background design elements: logos, university/company headers, "
+            "footers, decorative borders, watermarks, and any branded imagery.\n"
+            "Determine the rectangular area (safe_area) where new body content "
+            "(title text, bullet points, images) can be injected WITHOUT overlapping "
+            "any background element.\n"
+            "Express all coordinates as PERCENTAGES of the slide dimensions (0-100).\n"
+            "Also detect whether the overall background is predominantly light or dark.\n"
+            "Return ONLY a valid JSON object with this exact structure:\n"
+            "{\n"
+            "  \"safe_area\": {\n"
+            "    \"x_pct\": <float>,\n"
+            "    \"y_pct\": <float>,\n"
+            "    \"w_pct\": <float>,\n"
+            "    \"h_pct\": <float>\n"
+            "  },\n"
+            "  \"background_theme\": \"light\" | \"dark\",\n"
+            "  \"suggested_text_color_hex\": \"#rrggbb\"\n"
+            "}"
+        )
+
+        payload = {
+            "contents": [{
+                "parts": [
+                    {"inlineData": {"mimeType": "image/png", "data": img_b64}},
+                    {"text": prompt}
+                ]
+            }],
+            "generationConfig": {
+                "response_mime_type": "application/json",
+                "temperature": 0.0
+            }
+        }
+
+        resp = requests.post(
+            f"{GEMINI_VISION_URL}?key={api_key}",
+            headers={"Content-Type": "application/json"},
+            json=payload,
+            timeout=30
+        )
+        resp.raise_for_status()
+        raw_text = (resp.json()
+                    .get("candidates", [{}])[0]
+                    .get("content", {})
+                    .get("parts", [{}])[0]
+                    .get("text", "{}"))
+
+        # Strip markdown code fences if present
+        raw_text = re.sub(r"```[a-zA-Z]*\n?", "", raw_text).strip("`").strip()
+        data = json.loads(raw_text)
+
+        sa = data.get("safe_area", {})
+        x_pct = float(sa.get("x_pct", 8))
+        y_pct = float(sa.get("y_pct", 15))
+        w_pct = float(sa.get("w_pct", 84))
+        h_pct = float(sa.get("h_pct", 75))
+
+        # Guard against degenerate values
+        x_pct = max(0, min(x_pct, 40))
+        y_pct = max(0, min(y_pct, 40))
+        w_pct = max(30, min(w_pct, 100 - x_pct))
+        h_pct = max(30, min(h_pct, 100 - y_pct))
+
+        safe_area = {
+            "left":  int(slide_width_emu  * x_pct / 100),
+            "top":   int(slide_height_emu * y_pct / 100),
+            "width": int(slide_width_emu  * w_pct / 100),
+            "height":int(slide_height_emu * h_pct / 100),
+        }
+
+        bg_theme = data.get("background_theme", "light")
+        hex_color = data.get("suggested_text_color_hex", "").lstrip("#")
+        if len(hex_color) == 6:
+            try:
+                text_color = RGBColor(
+                    int(hex_color[0:2], 16),
+                    int(hex_color[2:4], 16),
+                    int(hex_color[4:6], 16),
+                )
+            except Exception:
+                text_color = RGBColor(0, 0, 0) if bg_theme == "light" else RGBColor(255, 255, 255)
+        else:
+            text_color = RGBColor(0, 0, 0) if bg_theme == "light" else RGBColor(255, 255, 255)
+
+        print(f"[SAFE-ZONE] Gemini returned: x={x_pct}% y={y_pct}% w={w_pct}% h={h_pct}% theme={bg_theme}")
+        return {"safe_area": safe_area, "background_theme": bg_theme, "text_color": text_color}
+
+    except Exception as e:
+        print(f"[WARN] Gemini safe-zone detection failed ({e}), using fallback defaults")
+        return DEFAULT
+
+
+def _inject_content_in_safe_zone(slide, safe_zone, title_text, body_shapes, slide_width, slide_height):
+    """
+    Places title and body content extracted from source slides into the
+    Gemini-detected safe zone on the target template slide.
+    Respects word-wrap boundaries and scales font sizes to fit.
+    """
+    sz = safe_zone["safe_area"]
+    text_color = safe_zone["text_color"]
+
+    safe_left   = sz["left"]
+    safe_top    = sz["top"]
+    safe_width  = sz["width"]
+    safe_height = sz["height"]
+
+    # --- Title ---
+    if title_text:
+        title_h = int(safe_height * 0.22)
+        txb = slide.shapes.add_textbox(safe_left, safe_top, safe_width, title_h)
+        tf = txb.text_frame
+        tf.clear()
+        tf.word_wrap = True
+        tf.auto_size = MSO_AUTO_SIZE.TEXT_TO_FIT_SHAPE
+        tf.text = title_text
+        p = tf.paragraphs[0]
+        p.alignment = PP_ALIGN.LEFT
+        for run in p.runs:
+            run.font.bold = True
+            run.font.size = Pt(28)
+            run.font.color.rgb = text_color
+        body_top = safe_top + title_h + int(Inches(0.1))
+    else:
+        body_top = safe_top
+
+    body_height = safe_top + safe_height - body_top
+
+    # --- Body shapes (text + images) ---
+    # Separate text shapes from image shapes
+    text_shapes = [s for s in body_shapes if s.get("type") == "text"]
+    image_shapes = [s for s in body_shapes if s.get("type") == "image"]
+
+    if text_shapes:
+        body_text_lines = []
+        for s in text_shapes:
+            t = s.get("text", "").strip()
+            if t:
+                body_text_lines.append(t)
+
+        # Adaptive font sizing
+        body_w = safe_width if not image_shapes else int(safe_width * 0.58)
+        body_font = _fit_font_size(body_text_lines, body_w, body_height, base_size_pt=18, min_size_pt=10)
+
+        txb2 = slide.shapes.add_textbox(safe_left, body_top, body_w, body_height)
+        bf = txb2.text_frame
+        bf.clear()
+        bf.word_wrap = True
+        bf.auto_size = MSO_AUTO_SIZE.TEXT_TO_FIT_SHAPE
+
+        for idx, line in enumerate(body_text_lines):
+            p = bf.add_paragraph() if idx > 0 else bf.paragraphs[0]
+            p.text = f"\u2022  {line}"
+            p.level = 0
+            p.alignment = PP_ALIGN.LEFT
+            p.space_after = Pt(6)
+            for run in p.runs:
+                run.font.size = body_font
+                run.font.color.rgb = text_color
+
+    # --- Images: place in right portion of safe zone ---
+    if image_shapes:
+        img_area_left  = safe_left + int(safe_width * 0.60)
+        img_area_top   = body_top
+        img_area_width = safe_width - int(safe_width * 0.60)
+        img_area_height = body_height
+
+        per_img_height = img_area_height // max(len(image_shapes), 1)
+        for i, img_shape in enumerate(image_shapes):
+            img_path = img_shape.get("temp_path")
+            if img_path and os.path.exists(img_path):
+                try:
+                    with Image.open(img_path) as im:
+                        aspect = im.width / im.height if im.height else 1.0
+                except Exception:
+                    aspect = 1.0
+                w = img_area_width
+                h = int(w / aspect)
+                if h > per_img_height:
+                    h = per_img_height
+                    w = int(h * aspect)
+                slide.shapes.add_picture(
+                    img_path,
+                    img_area_left,
+                    img_area_top + i * per_img_height,
+                    width=w, height=h
+                )
+
+
 def take_screenshot_of_master(ppt_path, output_folder):
     try:
         ppt_path = os.path.abspath(ppt_path)
@@ -830,124 +1063,154 @@ def take_screenshot_of_master(ppt_path, output_folder):
         return None
 
 def generate_ppt(content_path, template_path, layout_index=1):
+    """
+    Smart PPT converter: extracts content from source slides and injects it into
+    the user's custom template while:
+      1. Using the TEMPLATE's slide dimensions (fixes sizing mismatch).
+      2. Calling Gemini Vision to detect logo/header/footer safe zones.
+      3. Placing text and images ONLY inside the detected safe area.
+    """
+    screenshot_path = None
+    temp_image_paths = []
     try:
         print(f"Template path: {template_path}")
         print(f"Content path: {content_path}")
-        print(f"Layout index: {layout_index}")
 
         if not os.path.exists(template_path):
             raise FileNotFoundError("Template file not found")
         if content_path and not os.path.exists(content_path):
             raise FileNotFoundError("Content file not found")
 
+        # ── Step 1: Screenshot the template's first slide ─────────────────────
         screenshot_dir = os.path.join("Uploads", "screenshots")
         os.makedirs(screenshot_dir, exist_ok=True)
         screenshot_path = take_screenshot_of_master(template_path, screenshot_dir)
         if not screenshot_path:
-            print("[WARN] Failed to capture master slide screenshot. Continuing with template layouts (no screenshot background).")
+            print("[WARN] Could not capture template screenshot – will use fallback margins.")
 
-        content_ppt = Presentation(content_path)
+        # ── Step 2: Load both presentations ───────────────────────────────────
+        content_ppt  = Presentation(content_path)
         template_ppt = Presentation(template_path)
-        content_slide_width = content_ppt.slide_width
-        content_slide_height = content_ppt.slide_height
-        # If we couldn't take a screenshot, we still want to leverage the template's master/layouts
-        if not screenshot_path:
-            output_ppt = Presentation(template_path)
-            # Remove any existing slides from the template so we add fresh ones with the same style
-            for i in range(len(output_ppt.slides)-1, -1, -1):
-                rId = output_ppt.slides._sldIdLst[i].rId
-                output_ppt.part.drop_rel(rId)
-                del output_ppt.slides._sldIdLst[i]
-            print("[INFO] Using template background and layouts (no screenshot)")
-        else:
-            output_ppt = Presentation()
-            print("[INFO] Using screenshot background")
-        output_ppt.slide_width = content_slide_width
-        output_ppt.slide_height = content_slide_height
 
-        # Choose base layout: use provided layout_index if valid, else default
-        try:
-            base_idx = int(layout_index)
-        except Exception:
-            base_idx = None
-        default_layout_index = 6 if len(output_ppt.slide_layouts) > 6 else 0
-        if base_idx is not None and 0 <= base_idx < len(output_ppt.slide_layouts):
-            base_layout = output_ppt.slide_layouts[base_idx]
-        else:
-            base_layout = output_ppt.slide_layouts[default_layout_index]
-        print(f"Content PPT loaded with {len(content_ppt.slides)} slides")
-        print(f"Content slide dimensions: {content_slide_width}x{content_slide_height}")
-        print(f"Using layout index: {list(output_ppt.slide_layouts).index(base_layout)}")
+        # Use TEMPLATE dimensions – this eliminates the sizing mismatch entirely
+        tmpl_slide_width  = template_ppt.slide_width
+        tmpl_slide_height = template_ppt.slide_height
+        print(f"Template slide dimensions: {tmpl_slide_width} x {tmpl_slide_height} EMU")
+        print(f"Content PPT has {len(content_ppt.slides)} slides")
 
-        for slide_idx, slide in enumerate(content_ppt.slides):
+        # ── Step 3: Ask Gemini Vision for the safe zone ───────────────────────
+        safe_zone = get_template_safe_zone(screenshot_path, tmpl_slide_width, tmpl_slide_height)
+        print(f"[SAFE-ZONE] Using: {safe_zone['safe_area']}  theme={safe_zone['background_theme']}")
+
+        # ── Step 4: Build the output presentation from the template ───────────
+        output_ppt = Presentation(template_path)
+        # Remove all existing slides but keep masters / themes / background
+        for i in range(len(output_ppt.slides) - 1, -1, -1):
+            rId = output_ppt.slides._sldIdLst[i].rId
+            output_ppt.part.drop_rel(rId)
+            del output_ppt.slides._sldIdLst[i]
+
+        # Pick the blank-ish layout (fewest placeholders) so the template bg shows
+        def _pick_layout(prs):
+            best_idx, best_cnt = 0, 9999
+            for li, sl in enumerate(prs.slide_layouts):
+                if sl.name and 'blank' in sl.name.lower():
+                    return li
+                cnt = sum(1 for sp in sl.placeholders)
+                if cnt < best_cnt:
+                    best_cnt, best_idx = cnt, li
+            return best_idx
+
+        layout_idx   = _pick_layout(output_ppt)
+        base_layout  = output_ppt.slide_layouts[layout_idx]
+        print(f"Using template layout index: {layout_idx} ('{base_layout.name}')")
+
+        # ── Step 5: Extract content slide by slide and inject safely ──────────
+        for slide_idx, src_slide in enumerate(content_ppt.slides):
             print(f"Processing slide {slide_idx + 1}")
             new_slide = output_ppt.slides.add_slide(base_layout)
-            if screenshot_path and os.path.exists(screenshot_path):
-                new_slide.shapes.add_picture(
-                    screenshot_path, 
-                    left=0, 
-                    top=0, 
-                    width=content_slide_width, 
-                    height=content_slide_height
-                )
-                print(f"Added background image to slide {slide_idx + 1}")
-            # If no screenshot, we rely on the template's background from the chosen layout
-            # Remove default placeholders to avoid duplicates with copied content
-            try:
-                for shp in list(new_slide.shapes):
-                    if getattr(shp, 'is_placeholder', False):
+
+            # Remove any placeholder shapes the layout added
+            for shp in list(new_slide.shapes):
+                if getattr(shp, 'is_placeholder', False):
+                    try:
                         new_slide.shapes._spTree.remove(shp._element)
-            except Exception:
-                pass
+                    except Exception:
+                        pass
 
-            image_positions = []
-            for shape in slide.shapes:
-                if shape.shape_type == 13:
-                    image_positions.append({
-                        "left": shape.left,
-                        "top": shape.top,
-                        "width": shape.width,
-                        "height": shape.height
-                    })
+            # Collect content from the source slide
+            title_text  = ""
+            body_shapes = []
 
-            image_count = 0
-            for shape in slide.shapes:
+            for shape in src_slide.shapes:
+                # Extract text
                 if hasattr(shape, "text") and shape.text and shape.text.strip():
-                    add_text_box(new_slide, shape, content_slide_width, content_slide_height, 1.0, output_ppt, image_positions=image_positions)
-                if shape.shape_type == 13:
-                    image_count += 1
-                    image_stream = shape.image.blob
-                    image_filename = f"temp_image_{uuid.uuid4().hex[:8]}.png"
-                    image_path = os.path.join("Uploads", "images", image_filename)
-                    os.makedirs(os.path.dirname(image_path), exist_ok=True)
-                    with open(image_path, 'wb') as f:
-                        f.write(image_stream)
-                    add_image_to_slide(
-                        new_slide, image_path, 
-                        shape.left, shape.top, 
-                        shape.width, shape.height, 
-                        content_slide_width, content_slide_height, 1.0
+                    text = shape.text.strip()
+                    # Heuristic: treat short first-shape text or placeholder titles as the title
+                    is_title = (
+                        not title_text and
+                        (getattr(shape, 'is_placeholder', False) or
+                         (len(text) < 120 and '\n' not in text))
                     )
-                    print(f"Added image to slide at adjusted position ({shape.left}, {shape.top})")
+                    if is_title:
+                        title_text = text
+                    else:
+                        # Split multi-line text into individual bullets
+                        for line in text.split('\n'):
+                            line = line.strip()
+                            if line:
+                                body_shapes.append({"type": "text", "text": line})
 
-            print(f"Total images found in slide {slide_idx + 1}: {image_count}")
+                # Extract images
+                elif shape.shape_type == 13:
+                    try:
+                        img_bytes    = shape.image.blob
+                        img_filename = f"temp_img_{uuid.uuid4().hex[:8]}.png"
+                        img_path     = os.path.join("Uploads", "images", img_filename)
+                        os.makedirs(os.path.dirname(img_path), exist_ok=True)
+                        with open(img_path, 'wb') as f:
+                            f.write(img_bytes)
+                        body_shapes.append({"type": "image", "temp_path": img_path})
+                        temp_image_paths.append(img_path)
+                    except Exception as img_err:
+                        print(f"[WARN] Could not extract image: {img_err}")
 
-        output_dir = "outputs"
+            # Inject extracted content into the Gemini-detected safe zone
+            _inject_content_in_safe_zone(
+                new_slide, safe_zone,
+                title_text, body_shapes,
+                tmpl_slide_width, tmpl_slide_height
+            )
+            print(f"Slide {slide_idx + 1}: title='{title_text[:40]}...' "
+                  f"body_items={len(body_shapes)}")
+
+        # ── Step 6: Save ──────────────────────────────────────────────────────
+        output_dir  = "outputs"
         os.makedirs(output_dir, exist_ok=True)
         output_path = os.path.join(output_dir, f"generated_{uuid.uuid4().hex[:8]}.pptx")
         output_ppt.save(output_path)
-        print(f"PPT saved to: {output_path}")
+        print(f"[OK] PPT saved: {output_path}")
         return output_path
 
     except Exception as e:
-        print(f"Error generating PPT: {e}")
+        import traceback
+        print(f"[ERROR] generate_ppt failed: {e}")
+        traceback.print_exc()
         raise Exception(f"Failed to generate PPT: {str(e)}")
     finally:
+        # Cleanup screenshot temp file
         try:
-            if 'screenshot_path' in locals() and isinstance(screenshot_path, str) and screenshot_path and os.path.exists(screenshot_path):
+            if screenshot_path and os.path.exists(screenshot_path):
                 os.remove(screenshot_path)
-        except Exception as _cleanup_err:
-            print(f"[WARN] Could not remove temp screenshot: {_cleanup_err}")
+        except Exception:
+            pass
+        # Cleanup extracted temp images
+        for p in temp_image_paths:
+            try:
+                if os.path.exists(p):
+                    os.remove(p)
+            except Exception:
+                pass
 
 # ...rest of your code (extract_ppt_content, clean_template_ppt, refine_ppt, etc.) remains unchanged...
 def extract_ppt_content(ppt_path):
