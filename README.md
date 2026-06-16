@@ -1,3 +1,7 @@
+## 🌐 Live Demo
+
+> **Live App:** [ai-pptcon-frontend.vercel.app](https://ai-pptcon-frontend.vercel.app/)
+
 # AI PPTCon
 
 AI PPTCon is a full-stack web application for generating and converting PowerPoint presentations with AI. Users can create a new `.pptx` from a topic and prompt, convert an existing presentation into a new template, manage their profile, view dashboard statistics, track activity, and use an in-app chatbot/help flow.
