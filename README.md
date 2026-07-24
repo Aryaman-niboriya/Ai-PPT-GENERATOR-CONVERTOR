@@ -6,6 +6,10 @@
 
 AI PPTCon is a full-stack web application for generating and converting PowerPoint presentations with AI. Users can create a new `.pptx` from a topic and prompt, convert an existing presentation into a new template, manage their profile, view dashboard statistics, track activity, and use an in-app chatbot/help flow.
 
+<p align="center">
+  <img src="screenshots/02-landing-page.png" width="90%" alt="Landing page"/>
+</p>
+
 ## Features
 
 - AI-powered PPT generation from a topic, optional description, slide count, layout preference, and uploaded/selected template.
@@ -17,6 +21,75 @@ AI PPTCon is a full-stack web application for generating and converting PowerPoi
 - Chatbot and help/contact flows.
 - MongoDB support with JSON-file fallback for local development.
 - Image sourcing for generated slides through Unsplash, Pexels, Pollinations, and placeholder fallback.
+
+---
+
+## 📸 Feature Walkthrough
+
+### 🔐 Authentication
+Email/password login plus Google OAuth, backed by JWT sessions.
+
+<p align="center">
+  <img src="screenshots/01-login.png" width="80%" alt="Login modal"/>
+</p>
+
+### 📊 Dashboard
+At-a-glance view of total presentations, conversions, AI generations, and templates used, with quick actions to generate or convert.
+
+<p align="center">
+  <img src="screenshots/03-dashboard.png" width="90%" alt="Dashboard"/>
+</p>
+
+### 📈 Analytics — Overview
+Tracks activity breakdown (generation vs. conversion vs. template downloads vs. chat sessions) and daily activity trends.
+
+<p align="center">
+  <img src="screenshots/04-analytics-overview.png" width="90%" alt="Analytics overview"/>
+</p>
+
+### 📈 Analytics — Performance
+Productivity score, AI efficiency, conversion rate, and weekly performance trends across AI generations, conversions, and template downloads.
+
+<p align="center">
+  <img src="screenshots/05-analytics-performance.png" width="90%" alt="Analytics performance"/>
+</p>
+
+### ✨ AI PPT Generation
+Generate a presentation from just a topic — with optional detailed instructions, adjustable slide count (1–20), and layout preference (Auto, Title & Content, Image Left/Right, Full Image Background, Two-Column).
+
+<p align="center">
+  <img src="screenshots/06-generate-ppt.png" width="90%" alt="Generate PPT with AI"/>
+</p>
+
+### 🔄 Template Conversion
+Upload an existing presentation + a target template — the AI merges your content into the new template's design while preserving structure.
+
+<p align="center">
+  <img src="screenshots/07-convert-template.png" width="90%" alt="Convert existing presentation"/>
+</p>
+
+### 🗂️ Template Library
+Browse, search, filter, and download professional templates by category (Business, Creative, Analytics, Education, Marketing) with ratings and download counts.
+
+<p align="center">
+  <img src="screenshots/08-templates-library.png" width="90%" alt="Templates library"/>
+</p>
+
+### 🤖 AI Chatbot
+In-app assistant for quick help and questions while using the app.
+
+<p align="center">
+  <img src="screenshots/09-ai-chatbot.png" width="60%" alt="AI chatbot"/>
+</p>
+
+### 👤 Profile Settings
+Manage personal info, username, email, avatar, and preferences.
+
+<p align="center">
+  <img src="screenshots/10-profile-settings.png" width="90%" alt="Profile settings"/>
+</p>
+
+---
 
 ## Tech Stack
 
